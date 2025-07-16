@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::RwLock as ARwLock;
 
 use crate::ast::chunk_utils::get_chunks;
@@ -23,7 +23,7 @@ impl FileSplitter {
     }
 
     pub async fn vectorization_split(&self, doc: &Document,
-                                     tokenizer: Option<Arc<Tokenizer>>,
+                                     tokenizer: Option<UnifiedTokenizer>,
                                      tokens_limit: usize,
                                      global_context: Arc<ARwLock<GlobalContext>>
     ) -> Result<Vec<SplitResult>, String> {
@@ -57,7 +57,7 @@ impl FileSplitter {
                 let _line = lines_accumulator.join("\n");
                 let chunks_ = get_chunks(&_line, &path, &"".to_string(),
                                          (top_row as usize, line_idx - 1),
-                                         tokenizer.clone(), tokens_limit, LINES_OVERLAP, false);
+                                         tokenizer.as_ref().map(|t| Arc::new(t.clone())), tokens_limit, LINES_OVERLAP, false);
                 chunks.extend(chunks_);
                 lines_accumulator.clear();
                 token_n_accumulator = 0;
@@ -71,7 +71,7 @@ impl FileSplitter {
             let _line = lines_accumulator.join("\n");
             let chunks_ = get_chunks(&_line, &path, &"".to_string(),
                                      (top_row as usize, lines.len() - 1),
-                                     tokenizer.clone(), tokens_limit, LINES_OVERLAP, false);
+                                     tokenizer.as_ref().map(|t| Arc::new(t.clone())), tokens_limit, LINES_OVERLAP, false);
             chunks.extend(chunks_);
         }
 

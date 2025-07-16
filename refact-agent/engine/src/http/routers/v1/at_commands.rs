@@ -9,7 +9,7 @@ use tokio::sync::RwLock as ARwLock;
 use tokio::sync::Mutex as AMutex;
 use strsim::jaro_winkler;
 use itertools::Itertools;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tracing::info;
 
 use crate::at_commands::execute_at::run_at_commands_locally;
@@ -129,11 +129,11 @@ pub async fn handle_v1_command_completion(
         .unwrap())
 }
 
-async fn count_tokens(tokenizer_arc: Option<Arc<Tokenizer>>, messages: &Vec<ChatMessage>) -> Result<u64, ScratchError> {
+async fn count_tokens(tokenizer_arc: Option<Arc<UnifiedTokenizer>>, messages: &Vec<ChatMessage>) -> Result<u64, ScratchError> {
     let mut accum: u64 = 0;
 
     for message in messages {
-        accum += message.content.count_tokens(tokenizer_arc.clone(), &None)
+        accum += message.content.count_tokens(tokenizer_arc.as_ref().map(|t| t.as_ref().clone()), &None)
             .map_err(|e| ScratchError {
                 status_code: StatusCode::INTERNAL_SERVER_ERROR,
                 message: format!("v1_chat_token_counter: count_tokens failed: {}", e),

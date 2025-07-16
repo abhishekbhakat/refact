@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::collections::HashSet;
 use tracing::{info, warn};
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::RwLock as ARwLock;
 use indexmap::IndexMap;
 use crate::ast::treesitter::structs::SymbolType;
@@ -236,7 +236,7 @@ pub async fn pp_color_lines(
 
 async fn pp_limit_and_merge(
     lines_in_files: &mut IndexMap<String, Vec<FileLine>>,
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<UnifiedTokenizer>,
     tokens_limit: usize,
     single_file_mode: bool,
     settings: &PostprocessSettings,
@@ -349,7 +349,7 @@ async fn pp_limit_and_merge(
 pub async fn postprocess_context_files(
     gcx: Arc<ARwLock<GlobalContext>>,
     context_file_vec: &mut Vec<ContextFile>,
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<UnifiedTokenizer>,
     tokens_limit: usize,
     single_file_mode: bool,
     settings: &PostprocessSettings,

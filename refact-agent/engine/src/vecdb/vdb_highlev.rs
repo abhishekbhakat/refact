@@ -66,7 +66,7 @@ async fn do_i_need_to_reload_vecdb(
     ).await;
     
     consts.tokenizer = match tokenizer_result {
-        Ok(tokenizer) => tokenizer,
+        Ok(tokenizer) => tokenizer.map(|t| t.as_ref().clone()),
         Err(err) => {
             error!("vecdb launch failed, embedding model tokenizer didn't load: {}", err);
             return (false, None);

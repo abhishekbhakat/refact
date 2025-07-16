@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use crate::call_validation::ChatMessage;
 
 pub struct TokenCountCache {
@@ -27,7 +27,7 @@ impl TokenCountCache {
     pub fn get_token_count(
         &mut self,
         msg: &ChatMessage,
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         extra_tokens_per_message: i32,
     ) -> Result<i32, String> {
         let key = Self::cache_key(msg);
@@ -40,7 +40,7 @@ impl TokenCountCache {
         
         // Cache miss - compute the token count
         self.misses += 1;
-        let content_tokens = msg.content.count_tokens(tokenizer, &None)?;
+        let content_tokens = msg.content.count_tokens(tokenizer.as_ref().map(|t| t.as_ref().clone()), &None)?;
         let total_tokens = extra_tokens_per_message + content_tokens;
         
         // Cache the result

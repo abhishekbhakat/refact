@@ -1,7 +1,7 @@
 use serde_json;
 use std::sync::Arc;
 use tokio::sync::Mutex as AMutex;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use async_trait::async_trait;
 use serde_json::Value;
 
@@ -118,7 +118,7 @@ pub trait ScratchpadAbstract: Send {
 // aggregate this struct to make scratchpad implementation easier
 #[derive(Debug, Clone)]
 pub struct HasTokenizerAndEot {
-    pub tokenizer: Option<Arc<Tokenizer>>,
+    pub tokenizer: Option<UnifiedTokenizer>,
     pub eot: String,
     pub eos: String,
     pub context_format: String,
@@ -126,7 +126,7 @@ pub struct HasTokenizerAndEot {
 }
 
 impl HasTokenizerAndEot {
-    pub fn new(tokenizer: Option<Arc<Tokenizer>>) -> Self {
+    pub fn new(tokenizer: Option<UnifiedTokenizer>) -> Self {
         HasTokenizerAndEot { tokenizer, eot: String::new(), eos: String::new(), context_format: String::new(), rag_ratio: 0.5}
     }
 

@@ -9,7 +9,7 @@ use std::sync::Mutex as StdMutex;
 use std::sync::RwLock as StdRwLock;
 use hyper::StatusCode;
 use structopt::StructOpt;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::signal;
 use tokio::sync::{Mutex as AMutex, RwLock as ARwLock, Semaphore};
 use tracing::{error, info};
@@ -160,7 +160,7 @@ pub struct GlobalContext {
     pub caps_reading_lock: Arc<AMutex<bool>>,
     pub caps_last_error: String,
     pub caps_last_attempted_ts: u64,
-    pub tokenizer_map: HashMap<String, Option<Arc<Tokenizer>>>,
+    pub tokenizer_map: HashMap<String, Option<UnifiedTokenizer>>,
     pub tokenizer_download_lock: Arc<AMutex<bool>>,
     pub completions_cache: Arc<StdRwLock<CompletionCache>>,
     pub telemetry: Arc<StdRwLock<telemetry_structs::Storage>>,

@@ -4,7 +4,7 @@ use glob::Pattern;
 use indexmap::IndexMap;
 use tokio::sync::Mutex as AMutex;
 use serde_json::{json, Value};
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tracing::{info, warn};
 
 use crate::at_commands::at_commands::AtCommandsContext;
@@ -133,7 +133,7 @@ pub async fn run_tools_remotely(
 pub async fn run_tools_locally(
     ccx: Arc<AMutex<AtCommandsContext>>,
     tools: &mut IndexMap<String, Box<dyn Tool + Send>>,
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<Arc<UnifiedTokenizer>>,
     maxgen: usize,
     original_messages: &Vec<ChatMessage>,
     stream_back_to_user: &mut HasRagResults,
@@ -155,7 +155,7 @@ pub async fn run_tools_locally(
 pub async fn run_tools(
     ccx: Arc<AMutex<AtCommandsContext>>,
     tools: &mut IndexMap<String, Box<dyn Tool+Send>>,
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<Arc<UnifiedTokenizer>>,
     maxgen: usize,
     original_messages: &Vec<ChatMessage>,
     style: &Option<String>,
@@ -303,7 +303,7 @@ async fn pp_run_tools(
     mut generated_other: Vec<ChatMessage>,
     context_files_for_pp: &mut Vec<ContextFile>,
     tokens_for_rag: usize,
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<Arc<UnifiedTokenizer>>,
     style: &Option<String>,
 ) -> (Vec<ChatMessage>, Vec<ChatMessage>) {
     let (top_n, correction_only_up_to_step) = {
@@ -361,7 +361,7 @@ async fn pp_run_tools(
         let context_file_vec = postprocess_context_files(
             gcx.clone(),
             context_files_for_pp,
-            tokenizer.clone(),
+            tokenizer.as_ref().map(|t| t.as_ref().clone()),
             tokens_limit_files,
             false,
             &pp_settings,

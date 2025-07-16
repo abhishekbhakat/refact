@@ -1,7 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
-use std::sync::Arc;
 use serde_json::{json, Value};
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use crate::call_validation::{ChatContent, ChatMessage, ChatToolCall};
 use crate::scratchpads::scratchpad_utils::{calculate_image_tokens_openai, image_reader_from_b64string, parse_image_b64_from_image_url_openai};
 use crate::tokens::count_text_tokens;
@@ -77,7 +76,7 @@ impl MultimodalElement {
         })
     }
 
-    pub fn count_tokens(&self, tokenizer: Option<Arc<Tokenizer>>, style: &Option<String>) -> Result<i32, String> {
+    pub fn count_tokens(&self, tokenizer: Option<UnifiedTokenizer>, style: &Option<String>) -> Result<i32, String> {
         if self.is_text() {
             Ok(count_text_tokens(tokenizer, &self.m_content)? as i32)
         } else if self.is_image() {
@@ -175,7 +174,7 @@ impl ChatContent {
         }
     }
 
-    pub fn size_estimate(&self, tokenizer: Option<Arc<Tokenizer>>, style: &Option<String>) -> usize {
+    pub fn size_estimate(&self, tokenizer: Option<UnifiedTokenizer>, style: &Option<String>) -> usize {
         match self {
             ChatContent::SimpleText(text) => text.len(),
             ChatContent::Multimodal(_elements) => {
@@ -185,7 +184,7 @@ impl ChatContent {
         }
     }
 
-    pub fn count_tokens(&self, tokenizer: Option<Arc<Tokenizer>>, style: &Option<String>) -> Result<i32, String> {
+    pub fn count_tokens(&self, tokenizer: Option<UnifiedTokenizer>, style: &Option<String>) -> Result<i32, String> {
         match self {
             ChatContent::SimpleText(text) => Ok(count_text_tokens(tokenizer, text)? as i32),
             ChatContent::Multimodal(elements) => elements.iter()

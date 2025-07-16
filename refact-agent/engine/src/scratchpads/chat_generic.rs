@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::Mutex as AMutex;
 use tracing::{info, error};
 
@@ -40,14 +40,14 @@ pub struct GenericChatScratchpad {
 
 impl GenericChatScratchpad {
     pub fn new(
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         post: &ChatPost,
         messages: &Vec<ChatMessage>,
         prepend_system_prompt: bool,
         allow_at: bool,
     ) -> Self {
         GenericChatScratchpad {
-            t: HasTokenizerAndEot::new(tokenizer),
+            t: HasTokenizerAndEot::new(tokenizer.map(|t| t.as_ref().clone())),
             dd: DeltaDeltaChatStreamer::new(),
             post: post.clone(),
             messages: messages.clone(),
@@ -120,7 +120,7 @@ impl ScratchpadAbstract for GenericChatScratchpad {
             self.messages.clone()
         };
         let (messages, _any_context_produced) = if self.allow_at && !should_execute_remotely {
-            run_at_commands_locally(ccx.clone(), self.t.tokenizer.clone(), sampling_parameters_to_patch.max_new_tokens, messages, &mut self.has_rag_results).await
+            run_at_commands_locally(ccx.clone(), self.t.tokenizer.as_ref().map(|t| Arc::new(t.clone())), sampling_parameters_to_patch.max_new_tokens, messages, &mut self.has_rag_results).await
         } else {
             (self.messages.clone(), false)
         };

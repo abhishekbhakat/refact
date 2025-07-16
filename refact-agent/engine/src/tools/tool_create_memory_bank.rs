@@ -269,7 +269,7 @@ async fn read_and_compress_directory(
     let compressed = postprocess_context_files(
         gcx.clone(),
         &mut context_files,
-        tokenizer,
+        tokenizer.as_ref().map(|t| t.as_ref().clone()),
         tokens_limit,
         false,
         &pp_settings,

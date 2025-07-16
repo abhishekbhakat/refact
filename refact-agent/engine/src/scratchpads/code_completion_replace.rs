@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
 use std::time::Instant;
 use std::vec;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::Mutex as AMutex;
 use tokio::sync::RwLock as ARwLock;
 use tracing::{info, warn};
@@ -559,7 +559,7 @@ pub struct CodeCompletionReplaceScratchpad {
 
 impl CodeCompletionReplaceScratchpad {
     pub fn new(
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         post: &CodeCompletionPost,
         cache_arc: Arc<StdRwLock<completion_cache::CompletionCache>>,
         tele_storage: Arc<StdRwLock<telemetry_structs::Storage>>,
@@ -569,7 +569,7 @@ impl CodeCompletionReplaceScratchpad {
         let data4cache = completion_cache::CompletionSaveToCache::new(cache_arc, &post);
         let data4snippet = snippets_collection::SaveSnippet::new(tele_storage, &post);
         CodeCompletionReplaceScratchpad {
-            t: HasTokenizerAndEot::new(tokenizer),
+            t: HasTokenizerAndEot::new(tokenizer.map(|t| t.as_ref().clone())),
             post: post.clone(),
             token_bos: "".to_string(),
             token_esc: "".to_string(),
@@ -846,7 +846,7 @@ pub struct CodeCompletionReplacePassthroughScratchpad {
 
 impl CodeCompletionReplacePassthroughScratchpad {
     pub fn new(
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         post: &CodeCompletionPost,
         cache_arc: Arc<StdRwLock<completion_cache::CompletionCache>>,
         tele_storage: Arc<StdRwLock<telemetry_structs::Storage>>,
@@ -856,7 +856,7 @@ impl CodeCompletionReplacePassthroughScratchpad {
         let data4cache = completion_cache::CompletionSaveToCache::new(cache_arc, &post);
         let data4snippet = snippets_collection::SaveSnippet::new(tele_storage, &post);
         CodeCompletionReplacePassthroughScratchpad {
-            t: HasTokenizerAndEot::new(tokenizer),
+            t: HasTokenizerAndEot::new(tokenizer.map(|t| t.as_ref().clone())),
             post: post.clone(),
             new_line_symbol: None,
             cursor_subblock: None,

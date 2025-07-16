@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use serde_json::{json, Value};
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::Mutex as AMutex;
 use async_trait::async_trait;
 use tracing::info;
@@ -70,7 +70,7 @@ pub struct ChatPassthrough {
 
 impl ChatPassthrough {
     pub fn new(
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         post: &ChatPost,
         tools: Vec<ToolDesc>,
         messages: &Vec<ChatMessage>,
@@ -80,7 +80,7 @@ impl ChatPassthrough {
         supports_clicks: bool,
     ) -> Self {
         ChatPassthrough {
-            t: HasTokenizerAndEot::new(tokenizer),
+            t: HasTokenizerAndEot::new(tokenizer.map(|t| t.as_ref().clone())),
             post: post.clone(),
             tools,
             messages: messages.clone(),
@@ -126,7 +126,7 @@ impl ScratchpadAbstract for ChatPassthrough {
             self.messages.clone()
         };
         let (mut messages, _any_context_produced) = if self.allow_at && !should_execute_remotely {
-            run_at_commands_locally(ccx.clone(), self.t.tokenizer.clone(), sampling_parameters_to_patch.max_new_tokens, messages, &mut self.has_rag_results).await
+            run_at_commands_locally(ccx.clone(), self.t.tokenizer.as_ref().map(|t| Arc::new(t.clone())), sampling_parameters_to_patch.max_new_tokens, messages, &mut self.has_rag_results).await
         } else if self.allow_at {
             run_at_commands_remotely(ccx.clone(), &self.post.model, sampling_parameters_to_patch.max_new_tokens, messages, &mut self.has_rag_results).await?
         } else {
@@ -138,7 +138,7 @@ impl ScratchpadAbstract for ChatPassthrough {
             } else {
                 let mut tools = get_available_tools(gcx.clone()).await.into_iter()
                     .map(|x| (x.tool_description().name, x)).collect();
-                run_tools_locally(ccx.clone(), &mut tools, self.t.tokenizer.clone(), sampling_parameters_to_patch.max_new_tokens, &messages, &mut self.has_rag_results, &style).await?
+                run_tools_locally(ccx.clone(), &mut tools, self.t.tokenizer.as_ref().map(|t| Arc::new(t.clone())), sampling_parameters_to_patch.max_new_tokens, &messages, &mut self.has_rag_results, &style).await?
             }
         };
 

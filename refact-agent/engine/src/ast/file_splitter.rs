@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use itertools::Itertools;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -30,7 +30,7 @@ impl AstBasedFileSplitter {
     pub async fn vectorization_split(
         &self,
         doc: &Document,
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<UnifiedTokenizer>,
         gcx: Arc<RwLock<crate::global_context::GlobalContext>>,
         tokens_limit: usize,
     ) -> Result<Vec<crate::vecdb::vdb_structs::SplitResult>, String> {
@@ -84,7 +84,7 @@ impl AstBasedFileSplitter {
                 let content = doc_lines[top_row..bottom_row + 1].join("\n");
                 let chunks__ = crate::ast::chunk_utils::get_chunks(&content, &path, &"".to_string(),
                                           (top_row, bottom_row),
-                                          tokenizer.clone(), tokens_limit, LINES_OVERLAP, false);
+                                          tokenizer.as_ref().map(|t| Arc::new(t.clone())), tokens_limit, LINES_OVERLAP, false);
                 chunks_.extend(chunks__);
                 unused_symbols_cluster_accumulator_.clear();
             }
@@ -124,7 +124,7 @@ impl AstBasedFileSplitter {
                         let chunks_ = crate::ast::chunk_utils::get_chunks(&skeleton_line, &symbol.file_path,
                                                  &symbol.symbol_path,
                                                  (symbol.full_range.start_point.row, symbol.full_range.end_point.row),
-                                                 tokenizer.clone(), tokens_limit, LINES_OVERLAP, true);
+                                                 tokenizer.as_ref().map(|t| Arc::new(t.clone())), tokens_limit, LINES_OVERLAP, true);
                         chunks.extend(chunks_);
                     }
                 }
@@ -133,7 +133,7 @@ impl AstBasedFileSplitter {
             let (declaration, top_bottom_rows) = formatter.get_declaration_with_comments(&symbol, &doc_text, &guid_to_children, &guid_to_info);
             if !declaration.is_empty() {
                 let chunks_ = crate::ast::chunk_utils::get_chunks(&declaration, &symbol.file_path,
-                                         &symbol.symbol_path, top_bottom_rows, tokenizer.clone(), tokens_limit, LINES_OVERLAP, true);
+                                         &symbol.symbol_path, top_bottom_rows, tokenizer.as_ref().map(|t| Arc::new(t.clone())), tokens_limit, LINES_OVERLAP, true);
                 chunks.extend(chunks_);
             }
         }

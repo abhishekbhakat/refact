@@ -4,10 +4,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use ropey::Rope;
-use tokenizers::Tokenizer;
 
-use crate::tokens::count_text_tokens;
-use crate::tokens::count_text_tokens_with_fallback;
+use crate::tokens::{count_text_tokens, count_text_tokens_with_fallback, UnifiedTokenizer};
 use crate::vecdb::vdb_structs::SplitResult;
 
 
@@ -17,21 +15,28 @@ pub fn official_text_hashing_function(s: &str) -> String {
 }
 
 
-fn split_line_if_needed(line: &str, tokenizer: Option<Arc<Tokenizer>>, tokens_limit: usize) -> Vec<String> {
+fn split_line_if_needed(line: &str, tokenizer: Option<Arc<UnifiedTokenizer>>, tokens_limit: usize) -> Vec<String> {
     if let Some(tokenizer) = tokenizer {
-        tokenizer.encode(line, false).map_or_else(
-            |_| split_without_tokenizer(line, tokens_limit),
-            |tokens| {
+        match tokenizer.encode_fast(line, false) {
+            Ok(tokens) => {
                 let ids = tokens.get_ids();
                 if ids.len() <= tokens_limit {
                     vec![line.to_string()]
                 } else {
+                    // For UnifiedTokenizer, we need to handle decoding differently
+                    // This is a simplified approach - may need refinement
                     ids.chunks(tokens_limit)
-                        .filter_map(|chunk| tokenizer.decode(chunk, true).ok())
+                        .enumerate()
+                        .map(|(i, _chunk)| {
+                            let start = i * tokens_limit;
+                            let end = ((i + 1) * tokens_limit).min(line.len());
+                            line.chars().skip(start).take(end - start).collect()
+                        })
                         .collect()
                 }
             }
-        )
+            Err(_) => split_without_tokenizer(line, tokens_limit)
+        }
     } else {
         split_without_tokenizer(line, tokens_limit)
     }
@@ -53,7 +58,7 @@ pub fn get_chunks(text: &String,
                   file_path: &PathBuf,
                   symbol_path: &String,
                   top_bottom_rows: (usize, usize), // case with top comments
-                  tokenizer: Option<Arc<Tokenizer>>,
+                  tokenizer: Option<Arc<UnifiedTokenizer>>,
                   tokens_limit: usize,
                   intersection_lines: usize,
                   use_symbol_range_always: bool, // use for skeleton case
@@ -69,7 +74,7 @@ pub fn get_chunks(text: &String,
         let mut previous_start = line_idx;
         while line_idx < lines.len() {
             let line = lines[line_idx];
-            let line_tok_n = count_text_tokens_with_fallback(tokenizer.clone(), line);
+            let line_tok_n = count_text_tokens_with_fallback(tokenizer.as_ref().map(|t| t.as_ref().clone()), line);
 
             if !accum.is_empty() && current_tok_n + line_tok_n > tokens_limit {
                 let current_line = accum.iter().map(|(line, _)| line).join("\n");
@@ -104,7 +109,7 @@ pub fn get_chunks(text: &String,
         current_tok_n = 0;
         while line_idx >= 0 {
             let line = lines[line_idx as usize];
-            let text_orig_tok_n = count_text_tokens_with_fallback(tokenizer.clone(), line);
+            let text_orig_tok_n = count_text_tokens_with_fallback(tokenizer.as_ref().map(|t| t.as_ref().clone()), line);
             if !accum.is_empty() && current_tok_n + text_orig_tok_n > tokens_limit {
                 let current_line = accum.iter().map(|(line, _)| line).join("\n");
                 let start_line = if use_symbol_range_always { top_row as u64 } else { accum.front().unwrap().1 as u64 };
@@ -155,7 +160,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::ast::chunk_utils::get_chunks;
-    use crate::tokens::count_text_tokens;
+    use crate::tokens::{count_text_tokens, UnifiedTokenizer};
     // use crate::vecdb::vdb_structs::SplitResult;
 
     const DUMMY_TOKENIZER: &str = include_str!("dummy_tokenizer.json");
@@ -173,14 +178,16 @@ mod tests {
 
     #[test]
     fn dummy_tokenizer_test() {
-        let tokenizer = Arc::new(tokenizers::Tokenizer::from_str(DUMMY_TOKENIZER).unwrap());
-        let text_orig_tok_n = count_text_tokens(Some(tokenizer.clone()), PYTHON_CODE).unwrap();
+        let hf_tokenizer = tokenizers::Tokenizer::from_str(DUMMY_TOKENIZER).unwrap();
+        let tokenizer = Arc::new(UnifiedTokenizer::HuggingFace(Arc::new(hf_tokenizer)));
+        let text_orig_tok_n = count_text_tokens(Some((*tokenizer).clone()), PYTHON_CODE).unwrap();
         assert_eq!(text_orig_tok_n, PYTHON_CODE.len());
     }
 
     #[test]
     fn simple_chunk_test_1_with_128_limit() {
-        let tokenizer = Some(Arc::new(tokenizers::Tokenizer::from_str(DUMMY_TOKENIZER).unwrap()));
+        let hf_tokenizer = tokenizers::Tokenizer::from_str(DUMMY_TOKENIZER).unwrap();
+        let tokenizer = Some(Arc::new(UnifiedTokenizer::HuggingFace(Arc::new(hf_tokenizer))));
         let orig = include_str!("../caps/mod.rs").to_string();
         let token_limits = [10, 50, 100, 200, 300];
         for &token_limit in &token_limits {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock as ARwLock;
 use tokio::sync::Mutex as AMutex;
-use tokenizers::Tokenizer;
+use tokenizers::{Tokenizer, Encoding, PaddingParams, TruncationParams};
 use reqwest::header::AUTHORIZATION;
 use reqwest::Response;
 use uuid::Uuid;
@@ -13,6 +13,65 @@ use crate::custom_error::MapErrToString;
 use crate::files_correction::canonical_path;
 use crate::global_context::GlobalContext;
 use crate::caps::{default_hf_tokenizer_template, strip_model_from_finetune, BaseModelRecord};
+use crate::tiktoken_wrapper::{TikTokenWrapper, is_tiktoken_format};
+
+/// Unified tokenizer enum to handle both HuggingFace and TikToken tokenizers
+#[derive(Clone, Debug)]
+pub enum UnifiedTokenizer {
+    HuggingFace(Arc<Tokenizer>),
+    TikToken(Arc<TikTokenWrapper>),
+}
+
+impl UnifiedTokenizer {
+    /// Encode text with the tokenizer
+    pub fn encode_fast(&self, text: &str, add_special: bool) -> Result<Encoding, String> {
+        match self {
+            UnifiedTokenizer::HuggingFace(tokenizer) => {
+                tokenizer.encode(text, add_special)
+                    .map_err(|e| format!("HuggingFace tokenizer error: {}", e))
+            }
+            UnifiedTokenizer::TikToken(tokenizer) => {
+                tokenizer.encode_fast(text, add_special)
+            }
+        }
+    }
+
+    /// Create a new tokenizer with truncation parameters
+    /// Since we use Arc<>, we need to create new instances rather than modify existing ones
+    pub fn with_truncation(self, truncation: Option<TruncationParams>) -> Self {
+        match self {
+            UnifiedTokenizer::HuggingFace(tokenizer) => {
+                // For HuggingFace tokenizers, we need to clone and modify
+                let mut new_tokenizer = (*tokenizer).clone();
+                let _ = new_tokenizer.with_truncation(truncation);
+                UnifiedTokenizer::HuggingFace(Arc::new(new_tokenizer))
+            }
+            UnifiedTokenizer::TikToken(wrapper) => {
+                // For TikToken, we need to clone the wrapper and modify
+                let mut new_wrapper = (*wrapper).clone();
+                new_wrapper.with_truncation(truncation);
+                UnifiedTokenizer::TikToken(Arc::new(new_wrapper))
+            }
+        }
+    }
+
+    /// Create a new tokenizer with padding parameters
+    /// Since we use Arc<>, we need to create new instances rather than modify existing ones
+    pub fn with_padding(self, padding: Option<PaddingParams>) -> Self {
+        match self {
+            UnifiedTokenizer::HuggingFace(tokenizer) => {
+                let mut new_tokenizer = (*tokenizer).clone();
+                new_tokenizer.with_padding(padding);
+                UnifiedTokenizer::HuggingFace(Arc::new(new_tokenizer))
+            }
+            UnifiedTokenizer::TikToken(wrapper) => {
+                let mut new_wrapper = (*wrapper).clone();
+                new_wrapper.with_padding(padding);
+                UnifiedTokenizer::TikToken(Arc::new(new_wrapper))
+            }
+        }
+    }
+}
 
 
 async fn try_open_tokenizer(
@@ -68,6 +127,42 @@ fn check_json_file(path: &Path) -> bool {
         Ok(_) => { true }
         Err(_) => { false }
     }
+}
+
+/// Detect and load tokenizer with intelligent fallback
+/// Tries HuggingFace tokenizer.json first, then falls back to tiktoken format
+fn detect_and_load_tokenizer(path: &Path) -> Result<UnifiedTokenizer, String> {
+    // Try HuggingFace format first
+    let tokenizer_json = if path.is_dir() {
+        path.join("tokenizer.json")
+    } else if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+        path.to_path_buf()
+    } else {
+        // For non-json files, check if there's a tokenizer.json in the same directory
+        path.parent().unwrap_or(path).join("tokenizer.json")
+    };
+
+    if tokenizer_json.exists() && check_json_file(&tokenizer_json) {
+        tracing::info!("Loading HuggingFace tokenizer from {}", tokenizer_json.display());
+        let mut tokenizer = Tokenizer::from_file(&tokenizer_json)
+            .map_err(|e| format!("failed to load HuggingFace tokenizer: {}", e))?;
+        let _ = tokenizer.with_truncation(None);
+        tokenizer.with_padding(None);
+        return Ok(UnifiedTokenizer::HuggingFace(Arc::new(tokenizer)));
+    }
+
+    // Fallback to tiktoken format
+    if is_tiktoken_format(path) {
+        tracing::info!("Loading TikToken tokenizer from {}", path.display());
+        let tiktoken_wrapper = if path.is_dir() {
+            TikTokenWrapper::from_directory(path)?
+        } else {
+            TikTokenWrapper::from_model_file(path)?
+        };
+        return Ok(UnifiedTokenizer::TikToken(Arc::new(tiktoken_wrapper)));
+    }
+
+    Err(format!("No valid tokenizer format found at {}", path.display()))
 }
 
 async fn try_download_tokenizer_file_and_open(
@@ -134,7 +229,7 @@ async fn try_download_tokenizer_file_and_open(
 pub async fn cached_tokenizer(
     global_context: Arc<ARwLock<GlobalContext>>,
     model_rec: &BaseModelRecord,
-) -> Result<Option<Arc<Tokenizer>>, String> {
+) -> Result<Option<Arc<UnifiedTokenizer>>, String> {
     let model_id = strip_model_from_finetune(&model_rec.id);
     let tokenizer_download_lock: Arc<AMutex<bool>> = global_context.read().await.tokenizer_download_lock.clone();
     let _tokenizer_download_locked = tokenizer_download_lock.lock().await;
@@ -147,7 +242,7 @@ pub async fn cached_tokenizer(
     };
 
     if let Some(tokenizer) = tokenizer_in_gcx {
-        return Ok(tokenizer)
+        return Ok(tokenizer.map(|t| Arc::new(t)))
     }
 
     let (mut tok_file_path, tok_url) = match &model_rec.tokenizer {
@@ -169,7 +264,8 @@ pub async fn cached_tokenizer(
             } else {
                 canonical_path(file_tok)
             };
-            (canonical_path(file.to_string_lossy()), "".to_string())
+            let path = canonical_path(file.to_string_lossy());
+            (path, "".to_string())
         }
     };
 
@@ -178,28 +274,27 @@ pub async fn cached_tokenizer(
         let sanitized_model_id = model_id.chars()
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect::<String>();
-        
+
         tok_file_path = tokenizer_cache_dir.join(&sanitized_model_id).join("tokenizer.json");
 
         try_download_tokenizer_file_and_open(&client2, &tok_url, &model_rec.tokenizer_api_key, &tok_file_path).await?;
     }
-    
-    tracing::info!("loading tokenizer \"{}\"", tok_file_path.display());
-    let mut tokenizer = Tokenizer::from_file(tok_file_path)
-        .map_err(|e| format!("failed to load tokenizer: {}", e))?;
-    let _ = tokenizer.with_truncation(None);
-    tokenizer.with_padding(None);
-    let arc = Some(Arc::new(tokenizer));
 
-    global_context.write().await.tokenizer_map.insert(model_id, arc.clone());
-    Ok(arc)
+    tracing::info!("loading tokenizer \"{}\"", tok_file_path.display());
+
+    // Intelligent tokenizer detection: try HuggingFace first, then tiktoken
+    let unified_tokenizer = detect_and_load_tokenizer(&tok_file_path)?;
+
+    let result = Some(Arc::new(unified_tokenizer.clone()));
+    global_context.write().await.tokenizer_map.insert(model_id, Some(unified_tokenizer));
+    Ok(result)
 }
 
 /// Estimate as length / 3.5, since 3 is reasonable estimate for code, and 4 for natural language
 fn estimate_tokens(text: &str) -> usize {  1 + text.len() * 2 / 7 }
 
 pub fn count_text_tokens(
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<UnifiedTokenizer>,
     text: &str,
 ) -> Result<usize, String> {
     match tokenizer {
@@ -216,11 +311,64 @@ pub fn count_text_tokens(
 }
 
 pub fn count_text_tokens_with_fallback(
-    tokenizer: Option<Arc<Tokenizer>>,
+    tokenizer: Option<UnifiedTokenizer>,
     text: &str,
 ) -> usize {
     count_text_tokens(tokenizer, text).unwrap_or_else(|e| {
         tracing::error!("{e}");
         estimate_tokens(text)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+    use std::fs;
+
+    #[test]
+    fn test_detect_and_load_tokenizer_fallback() {
+        // Test that the function handles non-existent paths gracefully
+        let non_existent_path = PathBuf::from("/non/existent/path");
+        let result = detect_and_load_tokenizer(&non_existent_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No valid tokenizer format found"));
+    }
+
+    #[test]
+    fn test_tiktoken_detection() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create a fake tiktoken.model file
+        let model_file = temp_path.join("tiktoken.model");
+        fs::write(&model_file, b"fake tiktoken model data").unwrap();
+
+        // Test directory detection
+        assert!(is_tiktoken_format(temp_path));
+
+        // Test file detection
+        assert!(is_tiktoken_format(&model_file));
+
+        // Test non-tiktoken file
+        let json_file = temp_path.join("tokenizer.json");
+        fs::write(&json_file, r#"{"version": "1.0"}"#).unwrap();
+        assert!(!is_tiktoken_format(&json_file));
+    }
+
+    #[test]
+    fn test_unified_tokenizer_encoding() {
+        // Test with a simple tiktoken tokenizer (cl100k_base)
+        let tokenizer = tiktoken_rs::cl100k_base().unwrap();
+        let wrapper = crate::tiktoken_wrapper::TikTokenWrapper::from_tokenizer(tokenizer);
+        let unified = UnifiedTokenizer::TikToken(Arc::new(wrapper));
+
+        let test_text = "Hello, world!";
+        let result = unified.encode_fast(test_text, false);
+        assert!(result.is_ok());
+
+        let encoding = result.unwrap();
+        assert!(!encoding.get_ids().is_empty());
+    }
 }

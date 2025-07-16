@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use itertools::Itertools;
 use serde_json::Value;
 use tracing::error;
@@ -117,7 +118,7 @@ fn compress_message_at_index(
     token_cache.invalidate(&mutable_messages[index]);
     let (extra_tokens_per_message, _) = get_model_token_params(model_id);
     // Recalculate token usage after compression using the cache
-    token_counts[index] = token_cache.get_token_count(&mutable_messages[index], t.tokenizer.clone(), extra_tokens_per_message)?;
+    token_counts[index] = token_cache.get_token_count(&mutable_messages[index], t.tokenizer.as_ref().map(|tok| Arc::new(tok.clone())), extra_tokens_per_message)?;
     Ok(token_counts[index])
 }
 
@@ -520,7 +521,7 @@ pub fn fix_and_limit_messages_history(
     let mut token_cache = TokenCountCache::new();
     let mut token_counts: Vec<i32> = Vec::with_capacity(mutable_messages.len());
     for msg in &mutable_messages {
-        let count = token_cache.get_token_count(msg, t.tokenizer.clone(), extra_tokens_per_message)?;
+        let count = token_cache.get_token_count(msg, t.tokenizer.as_ref().map(|tok| Arc::new(tok.clone())), extra_tokens_per_message)?;
         token_counts.push(count);
     }
     let tools_description_tokens = if let Some(desc) = tools_description.clone() {
@@ -1264,7 +1265,7 @@ mod tests {
             let mock_tokenizer = Tokenizer::new(wordpiece);
 
             Arc::new(Self {
-                tokenizer: Some(Arc::new(mock_tokenizer)),
+                tokenizer: Some(crate::tokens::UnifiedTokenizer::HuggingFace(Arc::new(mock_tokenizer))),
                 eot: "".to_string(),
                 eos: "".to_string(),
                 context_format: "".to_string(),

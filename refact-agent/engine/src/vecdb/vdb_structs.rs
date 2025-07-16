@@ -1,9 +1,8 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use indexmap::IndexMap;
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use async_trait::async_trait;
 
 use crate::caps::EmbeddingModelRecord;
@@ -23,7 +22,7 @@ pub trait VecdbSearch: Send {
 pub struct VecdbConstants {
     // constant in a sense it cannot be changed without creating a new db
     pub embedding_model: EmbeddingModelRecord,
-    pub tokenizer: Option<Arc<Tokenizer>>,
+    pub tokenizer: Option<UnifiedTokenizer>,
     pub splitter_window_size: usize,
     pub vecdb_max_files: usize,
 }

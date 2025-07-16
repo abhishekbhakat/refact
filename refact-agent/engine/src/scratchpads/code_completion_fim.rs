@@ -6,7 +6,7 @@ use tokio::sync::Mutex as AMutex;
 use async_trait::async_trait;
 use ropey::Rope;
 use serde_json::{Value, json};
-use tokenizers::Tokenizer;
+use crate::tokens::UnifiedTokenizer;
 use tokio::sync::RwLock as ARwLock;
 use tracing::info;
 use crate::ast::ast_indexer_thread::AstIndexService;
@@ -39,7 +39,7 @@ pub struct FillInTheMiddleScratchpad {
 
 impl FillInTheMiddleScratchpad {
     pub fn new(
-        tokenizer: Option<Arc<Tokenizer>>,
+        tokenizer: Option<Arc<UnifiedTokenizer>>,
         post: &CodeCompletionPost,
         order: String,
         cache_arc: Arc<StdRwLock<completion_cache::CompletionCache>>,
@@ -50,7 +50,7 @@ impl FillInTheMiddleScratchpad {
         let data4cache = completion_cache::CompletionSaveToCache::new(cache_arc, &post);
         let data4snippet = snippets_collection::SaveSnippet::new(tele_storage, &post);
         FillInTheMiddleScratchpad {
-            t: HasTokenizerAndEot::new(tokenizer),
+            t: HasTokenizerAndEot::new(tokenizer.map(|t| t.as_ref().clone())),
             post: post.clone(),
             order,
             fim_prefix: String::new(),

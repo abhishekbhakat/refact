@@ -46,6 +46,7 @@ mod tools;
 mod postprocessing;
 mod completion_cache;
 mod tokens;
+mod tiktoken_wrapper;
 mod scratchpad_abstract;
 mod scratchpads;
 
